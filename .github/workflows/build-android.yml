@@ -143,7 +143,7 @@ jobs:
           set -euo pipefail
           curl -fL --retry 3 -o /tmp/cmdline-tools.zip \
             "https://dl.google.com/android/repository/commandlinetools-linux-${{ env.CMDLINE_TOOLS_VERSION }}_latest.zip"
-          echo "${{ env.CMDLINE_TOOLS_SHA1 }}  /tmp/cmdline-tools.zip" | sha1sum -c -
+          echo "${{ env.CMDLINE_TOOLS_SHA1 }} /tmp/cmdline-tools.zip" | sha1sum -c -
           sudo mkdir -p /opt/android-sdk/cmdline-tools
           sudo unzip -q /tmp/cmdline-tools.zip -d /opt/android-sdk/cmdline-tools
           # sdkmanager requires the "<sdk>/cmdline-tools/latest" layout to locate its SDK root
@@ -288,20 +288,58 @@ jobs:
             -DANDROID_CI_BUILD_NUMBER=${{ github.run_number }} \
             2>&1 | tee logs/configure_android.log
 
-      - name: Build z_generals (libmain.so) + DXVK d3d8/d3d9
+      - name: Build dual-Hz Android engine + DXVK d3d8/d3d9
         run: |
-          set -o pipefail
+          set -euo pipefail
           mkdir -p logs
-          # ninja -k 0: keep going past failures so ONE run surfaces every
-          # cross-compile error in the 1.6M-LOC engine instead of one per
-          # round-trip; the exit code still fails the step when anything broke.
-          # main_hook/file_redirect_hook/gsl_alloc_hook/hook_impl
-          # (cmake/adrenotools.cmake): dlopen()'d by path at runtime, not a
-          # link-time dependency of z_generals, so a targeted build skips them
-          # unless named explicitly -- package-android-zh.sh's jniLibs staging
-          # requires all four to already exist.
-          cmake --build build/${{ env.PRESET }} --target z_generals dxvk_d3d8_install \
-            main_hook file_redirect_hook gsl_alloc_hook hook_impl -- -k 0 2>&1 | tee logs/build_android.log
+
+          BUILD_DIR="build/${{ env.PRESET }}"
+          GAME_LIB="${BUILD_DIR}/GeneralsMD/Code/Main/libmain.so"
+          SECOND_LIB="${BUILD_DIR}/libmain60.so"
+
+          echo "=== PASS 1: Build 60 Hz engine ==="
+          cmake --preset "${{ env.PRESET }}" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DANDROID_CI_BUILD_NUMBER=${{ github.run_number }} \
+            -DSAGE_HIGH_FPS_SIM=ON \
+            2>&1 | tee logs/configure_android_60hz.log
+
+          cmake --build "${BUILD_DIR}" --target z_generals dxvk_d3d8_install \
+            main_hook file_redirect_hook gsl_alloc_hook hook_impl -- -k 0 \
+            2>&1 | tee logs/build_android_60hz.log
+
+          if [ ! -f "${GAME_LIB}" ]; then
+            echo "::error::60 Hz libmain.so was not built"
+            exit 1
+          fi
+
+          cp "${GAME_LIB}" "${SECOND_LIB}"
+          echo "60 Hz engine saved as ${SECOND_LIB}:"
+          ls -lh "${SECOND_LIB}"
+
+          echo "=== PASS 2: Build 30 Hz engine ==="
+          cmake --preset "${{ env.PRESET }}" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DANDROID_CI_BUILD_NUMBER=${{ github.run_number }} \
+            -DSAGE_HIGH_FPS_SIM=OFF \
+            2>&1 | tee logs/configure_android_30hz.log
+
+          cmake --build "${BUILD_DIR}" --target z_generals dxvk_d3d8_install \
+            main_hook file_redirect_hook gsl_alloc_hook hook_impl -- -k 0 \
+            2>&1 | tee logs/build_android_30hz.log
+
+          if [ ! -f "${GAME_LIB}" ]; then
+            echo "::error::30 Hz libmain.so was not built"
+            exit 1
+          fi
+
+          echo "=== Dual-Hz native build completed ==="
+          echo "30 Hz: ${GAME_LIB}"
+          ls -lh "${GAME_LIB}"
+          echo "60 Hz: ${SECOND_LIB}"
+          ls -lh "${SECOND_LIB}"
           ccache --show-stats
 
       - name: Verify artifacts
@@ -409,6 +447,7 @@ jobs:
         run: |
           STRIP="$(ls "${ANDROID_NDK_HOME}"/toolchains/llvm/prebuilt/*/bin/llvm-strip | head -1)"
           for lib in "build/${{ env.PRESET }}/GeneralsMD/Code/Main/libmain.so" \
+                     "build/${{ env.PRESET }}/libmain60.so" \
                      "build/${{ env.PRESET }}/_deps/sdl3-build/libSDL3.so" \
                      "build/${{ env.PRESET }}/_deps/sdl3_image-build/libSDL3_image.so" \
                      "build/${{ env.PRESET }}/_deps/openal_soft-build/libopenal.so" \
@@ -446,6 +485,7 @@ jobs:
           GX_ANDROID_STAGING: ${{ github.workspace }}/android-staging
           GX_ANDROID_VERSION_CODE: ${{ steps.artifact.outputs.version_code }}
           GX_ANDROID_VERSION_NAME: ${{ steps.artifact.outputs.version_name }}
+          GX_SECOND_GAME_LIB: ${{ github.workspace }}/build/${{ env.PRESET }}/libmain60.so
         run: |
           ./scripts/build/android/package-android-zh.sh
 
@@ -456,6 +496,28 @@ jobs:
           if [ ! -f "$APK" ]; then echo "::error::APK not found at $APK"; exit 1; fi
           cp "$APK" "${{ steps.artifact.outputs.apk_name }}"
           echo "path=${{ steps.artifact.outputs.apk_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify dual-Hz libraries
+        run: |
+          set -euo pipefail
+          APK="${{ steps.locate.outputs.path }}"
+          TMP="$(mktemp -d)"
+          unzip -q "$APK" 'lib/arm64-v8a/*' -d "$TMP"
+
+          echo "=== APK native libraries ==="
+          ls -lh "$TMP/lib/arm64-v8a/"
+
+          test -f "$TMP/lib/arm64-v8a/libmain.so" || {
+            echo "::error::30 Hz libmain.so is missing from APK"
+            exit 1
+          }
+          test -f "$TMP/lib/arm64-v8a/libmain60.so" || {
+            echo "::error::60 Hz libmain60.so is missing from APK"
+            exit 1
+          }
+
+          echo "SUCCESS: APK contains both 30 Hz and 60 Hz engines."
+          rm -rf "$TMP"
 
       # GeneralsX @bugfix Android CI 07/07/2026 A real device caught what CI
       # missed: run #10's APK was missing libgamespy.so (a genuine DT_NEEDED
@@ -600,26 +662,7 @@ jobs:
           set -euo pipefail
           declare -A latest_run
 
-          while IFS=$'\t' read -r branch run_id; do
-            [ -z "${branch}" ] && continue
-            if [ -z "${latest_run[$branch]:-}" ] || [ "${run_id}" -gt "${latest_run[$branch]}" ]; then
-              latest_run[$branch]="${run_id}"
-            fi
-          done < <(gh api "repos/${{ github.repository }}/actions/artifacts" --paginate \
-            --jq '.artifacts[] | [(.workflow_run.head_branch // ""), .workflow_run.id] | @tsv')
-
-          gh api "repos/${{ github.repository }}/actions/artifacts" --paginate \
-            --jq '.artifacts[] | [(.workflow_run.head_branch // ""), .workflow_run.id, .id] | @tsv' \
-          | while IFS=$'\t' read -r branch run_id artifact_id; do
-              [ -z "${branch}" ] && continue
-              if [ "${run_id}" != "${latest_run[$branch]:-}" ]; then
-                echo "Deleting old artifact ${artifact_id} (branch ${branch}, run ${run_id}, latest for that branch is ${latest_run[$branch]})"
-                gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/${artifact_id}" || true
-              fi
-            done
-
-      # Save caches even when the job failed (see the restore steps above for
-      # why plain actions/cache can't do this). Guard each save so a run that
+          while IFS=$'\t' read -r branch run_id; do [ -z "${branch}" ] && continue if [ -z "${latest_run[$branch]:-}" ] || [ "${run_id}" -gt "${latest_run[$branch]}" ]; then latest_run[$branch]="${run_id}" fi done < <(gh api "repos/${{ github.repository }}/actions/artifacts" --paginate \ --jq '.artifacts[] | [(.workflow_run.head_branch // ""), .workflow_run.id] | @tsv') gh api "repos/${{ github.repository }}/actions/artifacts" --paginate \ --jq '.artifacts[] | [(.workflow_run.head_branch // ""), .workflow_run.id, .id] | @tsv' \ | while IFS=$'\t' read -r branch run_id artifact_id; do [ -z "${branch}" ] && continue if [ "${run_id}" != "${latest_run[$branch]:-}" ]; then echo "Deleting old artifact ${artifact_id} (branch ${branch}, run ${run_id}, latest for that branch is ${latest_run[$branch]})" gh api -X DELETE "repos/${{ github.repository }}/actions/artifacts/${artifact_id}" || true fi done # Save caches even when the job failed (see the restore steps above for # why plain actions/cache can't do this). Guard each save so a run that
       # restored an exact-key hit doesn't fail trying to re-save it.
       - name: Save Android SDK cache
         if: always() && steps.cache-android-sdk.outputs.cache-hit != 'true'
