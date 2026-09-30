@@ -37,7 +37,6 @@ import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.graphics.Typeface;
-import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -234,7 +233,12 @@ public class SetupActivity extends Activity {
         refreshGeneralsOnlineStatus();
         loadDxvkConfigIntoEditor();
         refreshDiagnosticsSwitches();
-        applyWaruPalette();
+        refreshUpdatesStatus();
+        // Once per process, not on every return to this screen.
+        if (!sAutoUpdateCheckedThisProcess && UpdateManager.isAutoCheckEnabled(this)) {
+            sAutoUpdateCheckedThisProcess = true;
+            runUpdateCheck(false);
+        }
     }
 
     // GeneralsX @feature Android port launcher-ui-2026 08/09/2026 The launcher
@@ -259,87 +263,20 @@ public class SetupActivity extends Activity {
     private FrameLayout contentHost;
     private TextView appBarTitle;
 
-    // WARU EDITION visual palette: blue primary + red danger, applied only to
-    // launcher views. Game/engine logic and all existing actions stay untouched.
-    private static final int WARU_BLUE = Color.rgb(35, 156, 245);
-    private static final int WARU_BLUE_DARK = Color.rgb(6, 20, 32);
-    private static final int WARU_BLUE_PANEL = Color.rgb(10, 31, 47);
-    private static final int WARU_BLUE_PANEL_2 = Color.rgb(15, 45, 66);
-    private static final int WARU_RED = Color.rgb(220, 45, 55);
-    private static final int WARU_TEXT = Color.rgb(238, 246, 252);
-
-    private void applyWaruPalette() {
-        if (contentHost == null) return;
-        applyWaruPaletteToView(contentHost);
-        if (appBarTitle != null) {
-            appBarTitle.setTextColor(WARU_TEXT);
-        }
-    }
-
-    private void applyWaruPaletteToView(View view) {
-        if (view == null) return;
-
-        if (view instanceof LinearLayout || view instanceof FrameLayout
-                || view instanceof ScrollView) {
-            // Do not force every child to the same color; panels get a subtle
-            // blue variation while the root remains dark.
-            if (view.getParent() == contentHost) {
-                view.setBackgroundColor(WARU_BLUE_DARK);
-            }
-        }
-
-        if (view instanceof MaterialButton) {
-            MaterialButton b = (MaterialButton) view;
-            // Keep danger actions red; all other launcher actions use WARU blue.
-            int bg = WARU_BLUE;
-            try {
-                String text = String.valueOf(b.getText()).toLowerCase(java.util.Locale.ROOT);
-                if (text.contains("clear") || text.contains("delete")
-                        || text.contains("reset") || text.contains("remove")
-                        || text.contains("tozal") || text.contains("o'chir")
-                        || text.contains("удал") || text.contains("сброс")) {
-                    bg = WARU_RED;
-                }
-            } catch (Throwable ignored) {}
-            b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(bg));
-            b.setTextColor(Color.WHITE);
-            b.setIconTint(android.content.res.ColorStateList.valueOf(Color.WHITE));
-        } else if (view instanceof TextInputEditText) {
-            ((TextInputEditText) view).setTextColor(WARU_TEXT);
-        } else if (view instanceof TextInputLayout) {
-            TextInputLayout field = (TextInputLayout) view;
-            field.setBoxStrokeColor(WARU_BLUE);
-            field.setHintTextColor(android.content.res.ColorStateList.valueOf(WARU_BLUE));
-        } else if (view instanceof Slider) {
-            Slider slider = (Slider) view;
-            slider.setTrackActiveTintList(android.content.res.ColorStateList.valueOf(WARU_BLUE));
-            slider.setThumbTintList(android.content.res.ColorStateList.valueOf(WARU_BLUE));
-            slider.setHaloTintList(android.content.res.ColorStateList.valueOf(
-                    Color.argb(80, Color.red(WARU_BLUE), Color.green(WARU_BLUE), Color.blue(WARU_BLUE))));
-        }
-
-        if (view instanceof android.view.ViewGroup) {
-            android.view.ViewGroup group = (android.view.ViewGroup) view;
-            for (int i = 0; i < group.getChildCount(); i++) {
-                applyWaruPaletteToView(group.getChildAt(i));
-            }
-        }
-    }
-
     private void buildUi() {
         clearPageReferences();
 
         LinearLayout shell = new LinearLayout(this);
         shell.setOrientation(LinearLayout.VERTICAL);
-        shell.setBackgroundColor(WARU_BLUE_DARK);
+        shell.setBackgroundResource(R.drawable.gzh_launcher_background);
         setContentView(shell);
         // Edge-to-edge still handled the same way: pad the outermost view by
         // the system bars/cutout so the app bar clears the status bar and the
         // navigation bar below clears the gesture handle.
         InsetUtil.applySafeInsets(shell);
 
-        appBarTitle = UiKit.appBar(shell, getString(R.string.setup_title),
-            getString(R.string.nav_tab_home),
+        appBarTitle = UiKit.appBar(shell, "COMMAND & CONQUER // ZERO HOUR",
+            "WARU EDITION • " + getString(R.string.nav_tab_home),
             R.drawable.ic_gzh_doc, getString(R.string.setup_button_view_logs), this::onViewLogs);
 
         contentHost = new FrameLayout(this);
@@ -352,7 +289,6 @@ public class SetupActivity extends Activity {
         if (contentHost.getChildCount() == 0) {
             showTab(currentTab);
         }
-        applyWaruPalette();
     }
 
     private BottomNavigationView buildBottomNav() {
@@ -369,7 +305,7 @@ public class SetupActivity extends Activity {
         nav.setLayoutDirection(android.view.View.LAYOUT_DIRECTION_LTR);
         nav.setTextDirection(android.view.View.TEXT_DIRECTION_LOCALE);
 
-        nav.setBackgroundColor(WARU_BLUE_PANEL);
+        nav.setBackgroundColor(UiKit.color(this, R.color.gzh_surface_container_low));
         nav.setElevation(0f);
         nav.setLabelVisibilityMode(NavigationBarView.LABEL_VISIBILITY_LABELED);
         nav.setItemIconSize(UiKit.dp(this, 22));
@@ -377,12 +313,12 @@ public class SetupActivity extends Activity {
         // active-indicator pill, so it takes the on-container colour.
         android.content.res.ColorStateList itemTint = new android.content.res.ColorStateList(
             new int[][] { new int[] { android.R.attr.state_checked }, new int[0] },
-            new int[] { Color.WHITE,
-                        Color.LTGRAY });
+            new int[] { UiKit.color(this, R.color.gzh_on_primary_container),
+                        UiKit.color(this, R.color.gzh_on_surface_faint) });
         nav.setItemIconTintList(itemTint);
         nav.setItemTextColor(itemTint);
-        nav.setItemActiveIndicatorColor(android.content.res.ColorStateList.valueOf(WARU_BLUE_PANEL_2));
-        nav.setItemRippleColor(android.content.res.ColorStateList.valueOf(Color.argb(80, Color.red(WARU_BLUE), Color.green(WARU_BLUE), Color.blue(WARU_BLUE))));
+        nav.setItemActiveIndicatorColor(UiKit.tint(this, R.color.gzh_primary_container));
+        nav.setItemRippleColor(UiKit.tint(this, R.color.gzh_ripple_primary));
 
         Menu menu = nav.getMenu();
         menu.add(Menu.NONE, TAB_HOME, 0, R.string.nav_tab_home).setIcon(R.drawable.ic_gzh_home);
@@ -424,7 +360,7 @@ public class SetupActivity extends Activity {
         clearPageReferences();
         contentHost.removeAllViews();
         if (appBarTitle != null) {
-            appBarTitle.setText(tabTitle(tab));
+            appBarTitle.setText("WARU EDITION • " + getString(tabTitle(tab)));
         }
 
         LinearLayout page = UiKit.scrollingPage(contentHost);
@@ -463,13 +399,14 @@ public class SetupActivity extends Activity {
         refreshGeneralsOnlineStatus();
         loadDxvkConfigIntoEditor();
         refreshDiagnosticsSwitches();
-        applyWaruPalette();
+        refreshUpdatesStatus();
     }
 
     /** Forgets every page-scoped view so a stale one is never written to. */
     private void clearPageReferences() {
         statusText = null;
         onlineStatusView = null;
+        updatesStatusView = null;
         gameLanguageStatusView = null;
         renderBackendStatusView = null;
         customDriverStatusView = null;
@@ -483,6 +420,7 @@ public class SetupActivity extends Activity {
     // ------------------------------------------------------------ Home page
 
     private void buildHomeSection(LinearLayout page) {
+        UiKit.brandBanner(page);
         // The one thing this app exists to do, as the first thing on it.
         UiKit.button(page, UiKit.BTN_PRIMARY, R.drawable.ic_gzh_play,
             getString(R.string.setup_button_launch_game), this::onLaunchGame);
@@ -510,6 +448,101 @@ public class SetupActivity extends Activity {
         // people want right after picking their game folder, not something to
         // bury under settings most players never touch.
         buildGeneralsOnlineSection(page);
+        buildUpdatesSection(page);
+    }
+
+    // ------------------------------------------------------------ Updates
+
+    // GeneralsX @feature Android port 27/09/2026 Signed updates from the repository without a new
+    // APK: a newer engine, when one is published. The network settings from the same signed
+    // manifest are applied by the same check but shown on the multiplayer screen. See UpdateManager.
+    private TextView updatesStatusView;
+    private View updatesOpenOnlineButton;
+    private boolean updateCheckRunning;
+    private static boolean sAutoUpdateCheckedThisProcess;
+
+    private void buildUpdatesSection(LinearLayout root) {
+        LinearLayout content = UiKit.card(root);
+        UiKit.sectionHeader(content, R.drawable.ic_gzh_refresh,
+            getString(R.string.setup_card_updates), false);
+        UiKit.supporting(content, getString(R.string.setup_updates_help));
+        updatesStatusView = UiKit.body(content, null);
+        UiKit.button(content, UiKit.BTN_TONAL, R.drawable.ic_gzh_download,
+            getString(R.string.setup_button_check_updates), () -> runUpdateCheck(true));
+        // The community data patch is updated on the multiplayer screen; this card only says a
+        // newer one is out and takes the player there.
+        updatesOpenOnlineButton = UiKit.button(content, UiKit.BTN_TONAL, R.drawable.ic_gzh_globe,
+            getString(R.string.setup_button_open_online_data), () ->
+                startActivity(new Intent(this, GeneralsOnlineActivity.class)));
+        SwitchCompat auto = UiKit.switchRow(content,
+            getString(R.string.setup_switch_auto_updates), getString(R.string.setup_switch_auto_updates_desc));
+        auto.setChecked(UpdateManager.isAutoCheckEnabled(this));
+        auto.setOnCheckedChangeListener((button, checked) -> UpdateManager.setAutoCheckEnabled(this, checked));
+        refreshUpdatesStatus();
+    }
+
+    private void refreshUpdatesStatus() {
+        if (updatesStatusView == null) {
+            return;
+        }
+        int active = UpdateManager.activeEngineSeq(this);
+        String engine = active > 0
+            ? getString(R.string.setup_updates_engine_updated, active)
+            : getString(R.string.setup_updates_engine_bundled, UpdateManager.bundledEngineSeq(this));
+        long last = UpdateManager.lastCheckMillis(this);
+        String when = last > 0
+            ? android.text.format.DateFormat.getDateFormat(this).format(new java.util.Date(last)) + " "
+              + android.text.format.DateFormat.getTimeFormat(this).format(new java.util.Date(last))
+            : getString(R.string.setup_updates_never);
+        String status = getString(R.string.setup_updates_status, engine, when);
+        final boolean newerData = UpdateManager.datapackNewerAvailable(this);
+        if (newerData) {
+            status += "\n" + getString(R.string.setup_updates_datapack_line_new,
+                UpdateManager.datapackLatestSeen(this));
+        }
+        updatesStatusView.setText(status);
+        if (updatesOpenOnlineButton != null) {
+            updatesOpenOnlineButton.setVisibility(newerData ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /** @param userAsked true for the button (always report), false for the silent start-up check. */
+    private void runUpdateCheck(boolean userAsked) {
+        if (updateCheckRunning) {
+            return;
+        }
+        updateCheckRunning = true;
+        if (userAsked) {
+            toast(getString(R.string.setup_updates_checking));
+        }
+        new Thread(() -> {
+            final android.content.Context app = getApplicationContext();
+            final UpdateManager.Result r = UpdateManager.check(app, true);
+            runOnUiThread(() -> {
+                updateCheckRunning = false;
+                refreshUpdatesStatus();
+                if (!r.ok) {
+                    if (userAsked) {
+                        toast(r.offline
+                            ? getString(R.string.setup_updates_offline)
+                            : r.error != null && r.error.startsWith("HTTP 404")
+                            ? getString(R.string.setup_updates_not_published)
+                            : getString(R.string.setup_updates_failed, r.error));
+                    }
+                    return;
+                }
+                if (r.datapackAvailable != null) {
+                    toast(getString(R.string.setup_updates_datapack_available, r.datapackAvailable));
+                }
+                if (r.engineDownloaded) {
+                    toast(getString(R.string.setup_updates_engine_ready, r.engineSeq));
+                } else if (r.engineIncompatible) {
+                    toast(getString(R.string.setup_updates_engine_needs_apk, r.engineSeq));
+                } else if (userAsked) {
+                    toast(getString(R.string.setup_updates_none));
+                }
+            });
+        }, "gx-update-check").start();
     }
 
     // ------------------------------------------------------------ Help page
@@ -609,7 +642,7 @@ public class SetupActivity extends Activity {
             gameLanguageStatusView.setText(R.string.setup_game_text_status_default);
         } else {
             gameLanguageStatusView.setText(getString(R.string.setup_game_text_status,
-                LocaleHelper.gameTextDisplayName(token)));
+                gameTextName(token)));
         }
     }
 
@@ -619,6 +652,42 @@ public class SetupActivity extends Activity {
     // player's game folder right now, loose or inside a .big, as text or as the compiled
     // table. That is the list worth offering, and it is the one that answers "how do I get
     // back to English" -- English is simply one of the entries.
+    // GeneralsX @feature Android port 27/09/2026 A language names itself. A pack carries its
+    // name, in its own language, as the label GX:LanguageName near the top of generals.str, so
+    // a pack contributed to the repository shows up as "العربية" or "فارسی" rather than as its
+    // folder name, with nothing in this app to update. Packs without the label (older ones,
+    // the game's own .csf) fall back to LocaleHelper's list and then to the folder name.
+    private String gameTextName(String token) {
+        String gamePath = getSavedGamePath();
+        if (gamePath != null && token != null && !token.isEmpty()) {
+            File pack = new File(new File(new File(gamePath, "data"), token), "generals.str");
+            if (pack.isFile()) {
+                try (java.io.BufferedReader r = new java.io.BufferedReader(
+                         new java.io.InputStreamReader(new java.io.FileInputStream(pack), "UTF-8"))) {
+                    boolean wanted = false;
+                    String line;
+                    // The label sits right after the header comment; do not read 6000 entries.
+                    for (int i = 0; i < 200 && (line = r.readLine()) != null; i++) {
+                        line = line.trim();
+                        if (wanted) {
+                            if (line.length() >= 2 && line.startsWith("\"") && line.endsWith("\"")) {
+                                String name = line.substring(1, line.length() - 1).trim();
+                                if (!name.isEmpty()) {
+                                    return name;
+                                }
+                            }
+                            break;
+                        }
+                        wanted = line.equalsIgnoreCase("GX:LanguageName");
+                    }
+                } catch (java.io.IOException e) {
+                    // Unreadable pack: the fallback name below is still right.
+                }
+            }
+        }
+        return LocaleHelper.gameTextDisplayName(token);
+    }
+
     private java.util.List<String> installedGameTextTokens() {
         java.util.TreeSet<String> found = new java.util.TreeSet<>();
         String gamePath = getSavedGamePath();
@@ -689,7 +758,7 @@ public class SetupActivity extends Activity {
         final String[] labels = new String[tokens.size() + 1];
         labels[0] = getString(R.string.setup_game_text_default);
         for (int i = 0; i < tokens.size(); i++) {
-            labels[i + 1] = LocaleHelper.gameTextDisplayName(tokens.get(i));
+            labels[i + 1] = gameTextName(tokens.get(i));
         }
         String current = LocaleHelper.getGameTextToken(this);
         int checked = 0;
@@ -830,8 +899,7 @@ public class SetupActivity extends Activity {
     // this engine source tree, so a real in-game control can't be added from
     // here. Expose the same "ResolutionFontAdjustment" percentage here
     // instead, writing straight into the Options.ini this Android build
-    // actually reads (see SDL3Main.cpp: HOME=<internal storage>, so the file
-    // is <filesDir>/.local/share/GeneralsX/GeneralsZH/Options.ini) -- no need
+    // actually reads (the shared user-data dir, see optionsIniFile()) -- no need
     // to wait for the game to visit its own Options menu first.
     private Slider uiScaleSlider;
     private TextView uiScaleLabel;
@@ -863,10 +931,10 @@ public class SetupActivity extends Activity {
         // The floating bubble would show a bare untranslated number on top of
         // the value the header already spells out properly.
         uiScaleSlider.setLabelBehavior(LabelFormatter.LABEL_GONE);
-        uiScaleSlider.setTrackActiveTintList(android.content.res.ColorStateList.valueOf(WARU_BLUE));
+        uiScaleSlider.setTrackActiveTintList(UiKit.tint(this, R.color.gzh_primary));
         uiScaleSlider.setTrackInactiveTintList(UiKit.tint(this, R.color.gzh_surface_container_highest));
-        uiScaleSlider.setThumbTintList(android.content.res.ColorStateList.valueOf(WARU_BLUE));
-        uiScaleSlider.setHaloTintList(android.content.res.ColorStateList.valueOf(Color.argb(80, Color.red(WARU_BLUE), Color.green(WARU_BLUE), Color.blue(WARU_BLUE))));
+        uiScaleSlider.setThumbTintList(UiKit.tint(this, R.color.gzh_primary));
+        uiScaleSlider.setHaloTintList(UiKit.tint(this, R.color.gzh_ripple_primary));
         updateUiScaleLabel(startPercent);
         uiScaleSlider.addOnChangeListener((slider, value, fromUser) -> updateUiScaleLabel((int) value));
         LinearLayout.LayoutParams sliderLp = new LinearLayout.LayoutParams(
@@ -1526,7 +1594,7 @@ public class SetupActivity extends Activity {
             new ContextThemeWrapper(this, R.style.ThemeOverlay_GeneralsZH_OutlinedField);
         TextInputLayout field = new TextInputLayout(fieldContext);
         field.setHint(R.string.setup_card_dxvk_config);
-        field.setBoxStrokeColor(WARU_BLUE);
+        field.setBoxStrokeColor(UiKit.color(this, R.color.gzh_primary));
         field.setHintTextColor(UiKit.tint(this, R.color.gzh_on_surface_variant));
         // Keep the label in its floated position even when the box is empty:
         // loadDxvkConfigIntoEditor() puts the "select a game folder first"
@@ -1539,7 +1607,7 @@ public class SetupActivity extends Activity {
         TextInputEditText edit = new TextInputEditText(field.getContext());
         edit.setTypeface(android.graphics.Typeface.MONOSPACE);
         edit.setTextSize(12);
-        edit.setTextColor(WARU_TEXT);
+        edit.setTextColor(UiKit.color(this, R.color.gzh_on_surface));
         edit.setMinLines(6);
         edit.setMaxLines(20);
         edit.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
@@ -1699,6 +1767,17 @@ public class SetupActivity extends Activity {
             getString(R.string.setup_diagnostics_no_folder),
             R.color.gzh_status_warn, R.color.gzh_surface_container_high);
 
+        // GeneralsX @feature Android port 27/09/2026 Master switch: when off, nothing is logged in
+        // the background -- not the engine's stderr mirror, not crash.log, not GeneralsOnline.log,
+        // not this launcher's network trace. Kept as a marker in the app's own files dir (not the
+        // game folder) so it holds before any folder is chosen, and so the native side can find
+        // it at load time, before SDL_main (see GXLogging.h).
+        loggingSwitch = UiKit.switchRow(content,
+            getString(R.string.setup_switch_logging), getString(R.string.setup_switch_logging_desc));
+        loggingSwitch.setChecked(!isLoggingDisabled(this));
+        loggingSwitch.setOnCheckedChangeListener((button, checked) -> setLoggingDisabled(!checked));
+        UiKit.divider(content);
+
         for (int i = 0; i < DIAGNOSTIC_MARKERS.length; i++) {
             if (i > 0) {
                 UiKit.divider(content);
@@ -1711,6 +1790,26 @@ public class SetupActivity extends Activity {
     }
 
     private TextView diagnosticsNoFolderHint;
+    private SwitchCompat loggingSwitch;
+
+    static final String LOGGING_OFF_MARKER = "logging_off";
+
+    static boolean isLoggingDisabled(android.content.Context ctx) {
+        return new File(ctx.getFilesDir(), LOGGING_OFF_MARKER).isFile();
+    }
+
+    private void setLoggingDisabled(boolean disabled) {
+        File marker = new File(getFilesDir(), LOGGING_OFF_MARKER);
+        if (disabled) {
+            try {
+                marker.createNewFile();
+            } catch (java.io.IOException e) {
+                Toast.makeText(this, getString(R.string.setup_toast_options_save_failed, e.getMessage()), Toast.LENGTH_LONG).show();
+            }
+        } else {
+            marker.delete();
+        }
+    }
 
     private File diagnosticMarkerFile(String name) {
         String gamePath = getSavedGamePath();
@@ -1764,6 +1863,13 @@ public class SetupActivity extends Activity {
 
         onlineStatusView = UiKit.supporting(content, null);
 
+        // GeneralsX @feature Android port 27/09/2026 The service refuses a join between lobbies
+        // whose anti-cheat differs (anticheat_id, JoinLobbyResult_AnticheatMismatch), and this
+        // client has none. A PC player running GeneralsOnline AntiCheat or Easy Anti-Cheat is
+        // therefore unreachable from a phone until they turn it off -- say so up front instead
+        // of leaving players to discover it as a failed join.
+        UiKit.supporting(content, getString(R.string.setup_online_anticheat_note));
+
         UiKit.button(content, UiKit.BTN_TONAL, R.drawable.ic_gzh_account,
             getString(R.string.setup_button_online_account), () ->
                 startActivity(new Intent(this, GeneralsOnlineActivity.class)));
@@ -1779,8 +1885,12 @@ public class SetupActivity extends Activity {
             : getString(R.string.setup_online_signed_out));
     }
 
+    // GeneralsX @bugfix Android port 27/09/2026 The Options.ini the game reads lives in the shared
+    // user-data dir (SDL3Main.cpp, GENERALSX_USERDATA_DIR) since issue #9 moved it there on
+    // 18/07/2026. This still pointed at the old internal <filesDir>/.local/share/... copy, so the
+    // text size was saved where the game never looks and every value looked the same in game.
     private File optionsIniFile() {
-        return new File(getFilesDir(), ".local/share/GeneralsX/GeneralsZH/Options.ini");
+        return new File(DataPackInstaller.userDataDir(), "Options.ini");
     }
 
     private File defaultOptionsIniFile() {
@@ -1793,7 +1903,14 @@ public class SetupActivity extends Activity {
         String val = prefs.get("ResolutionFontAdjustment");
         if (val != null) {
             try {
-                return Math.max(0, Math.min(150, Integer.parseInt(val.trim())));
+                int percent = Integer.parseInt(val.trim());
+                // GeneralsX @bugfix Android port 27/09/2026 A negative value means "the game's
+                // default": the in-game Options menu saves -100 when the player never set one
+                // (OptionsMenu.cpp, getResolutionFontAdjustment() returns -1). Clamped to 0 it
+                // showed as 0% here, and Apply then saved a real 0 -- unscaled 800x600-size text.
+                if (percent >= 0) {
+                    return Math.min(150, percent);
+                }
             } catch (NumberFormatException ignored) {
                 // Fall through to the engine's own default below.
             }
@@ -2147,7 +2264,7 @@ public class SetupActivity extends Activity {
                     if (names.length() > 0) {
                         names.append(", ");
                     }
-                    names.append(LocaleHelper.gameTextDisplayName(token));
+                    names.append(gameTextName(token));
                 }
                 toast(getString(R.string.setup_langpack_done_n, installed.size(), names.toString()));
             });
@@ -2736,6 +2853,19 @@ public class SetupActivity extends Activity {
             boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
             if (granted) {
                 startActivityForResult(new Intent(this, FolderPickerActivity.class), 1001);
+            } else if (!ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.READ_EXTERNAL_STORAGE)) {
+                // GeneralsX @bugfix Android port 24/09/2026 Issue #22: after "Don't ask again" the
+                // system denies without showing a prompt, so retrying from here can never work.
+                // Send the user to this app's settings page, where the Storage permission lives.
+                Toast.makeText(this, R.string.folderpicker_toast_cant_read_legacy, Toast.LENGTH_LONG).show();
+                try {
+                    Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                    intent.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                } catch (Exception e) {
+                    // Some OEM builds lack the per-app page; the app list is the next best thing.
+                    startActivity(new Intent(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS));
+                }
             } else {
                 Toast.makeText(this, R.string.setup_toast_storage_permission_denied, Toast.LENGTH_LONG).show();
             }
@@ -2850,6 +2980,33 @@ public class SetupActivity extends Activity {
         copyFileIfMissing(new File(bundledRoot, "DefaultOptions.ini"), new File(gameFolderPath, "DefaultOptions.ini"));
         copyDirIfMissing(new File(bundledRoot, "fonts"), new File(gameFolderPath, "fonts"));
         syncEngineWindowOverrides(bundledRoot, gameFolderPath);
+        removeRetiredPortStringFiles(new File(gameFolderPath, "data"));
+        removeRetiredPortStringFiles(new File(bundledRoot, "data"));
+    }
+
+    // GeneralsX @bugfix Android port 25/09/2026 One build (24-25/09/2026) installed a second
+    // text file per language, data/<language>/generalsx.str, and created data/<language>/
+    // folders for eleven languages to hold them. A language is one file again --
+    // data/<language>/generals.str (languages/README.md) -- so take back exactly what that
+    // build put there: every generalsx.str, and a folder only if that left it empty. A
+    // player's generals.str/.csf, and any folder with anything else in it, is never touched.
+    private static void removeRetiredPortStringFiles(File dataDir) {
+        File[] languages = dataDir.listFiles();
+        if (languages == null) {
+            return;
+        }
+        for (File language : languages) {
+            if (!language.isDirectory()) {
+                continue;
+            }
+            File retired = new File(language, "generalsx.str");
+            if (retired.isFile() && retired.delete()) {
+                String[] left = language.list();
+                if (left != null && left.length == 0) {
+                    language.delete();
+                }
+            }
+        }
     }
 
     // GeneralsX @bugfix Android port 02/08/2026 GroupPanel.wnd (the native
@@ -2946,259 +3103,33 @@ public class SetupActivity extends Activity {
         startActivity(new Intent(this, NetworkDiagnosticsActivity.class));
     }
 
-    // GeneralsX @feature Android port 27/09/2026
-    // Automatic Zero Hour game-data downloader.
-    // If the game files are already installed, launch normally.
-    // If they are missing, download and install them first.
+    // GeneralsX @bugfix Android port 31/07/2026 Setup is portrait-first now
+    // (see AndroidManifest.xml/onCreate() comments), so launching straight
+    // into GeneralsZHActivity (locked landscape) can trigger a real
+    // portrait->landscape rotation right as the game's native window-size
+    // probe (WW3D::Init()) runs -- previously sidestepped entirely by never
+    // letting Setup rotate. Force landscape here and wait for
+    // onConfigurationChanged() to confirm the OS has actually applied it
+    // before starting the game, instead of guessing with a fixed delay. If
+    // we're already landscape (e.g. a tablet, or the user physically
+    // rotated the phone), there's nothing to wait for.
     private boolean pendingLaunchAfterRotation = false;
 
     private void onLaunchGame() {
-
-        File root = getExternalFilesDir(null);
-
-        if (root == null) {
-            new android.app.AlertDialog.Builder(this)
-                    .setTitle("Game files")
-                    .setMessage(
-                            "Android storage directory is unavailable."
-                    )
-                    .setPositiveButton("OK", null)
-                    .show();
+        if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            startActivity(new Intent(this, GeneralsZHActivity.class));
             return;
         }
-
-        // IMPORTANT:
-        // This must match the directory used by GameDataInstaller.
-        File gameDirectory = new File(
-                root,
-                "Command and Conquer Generals Zero Hour"
-        );
-
-        File iniZh = new File(
-                gameDirectory,
-                "INIZH.big"
-        );
-
-        File ini = new File(
-                gameDirectory,
-                "INI.big"
-        );
-
-        // Game files are already installed.
-        // Do NOT download again.
-        if (gameDirectory.isDirectory()
-                && (iniZh.isFile() || ini.isFile())) {
-
-            saveGamePath(
-                    gameDirectory.getAbsolutePath()
-            );
-
-            launchInstalledGame();
-            return;
-        }
-
-        // Game files are missing.
-        // Download and install them once.
-        showGameDownloadDialog();
-    }
-
-    private void showGameDownloadDialog() {
-
-        final android.widget.ProgressBar progressBar =
-                new android.widget.ProgressBar(
-                        this,
-                        null,
-                        android.R.attr.progressBarStyleHorizontal
-                );
-
-        progressBar.setMax(100);
-        progressBar.setProgress(0);
-
-        final android.widget.TextView downloadStatusText =
-                new android.widget.TextView(this);
-
-        downloadStatusText.setText(
-                "Game files are required.\n\nPreparing download..."
-        );
-
-        downloadStatusText.setPadding(
-                0,
-                0,
-                0,
-                24
-        );
-
-        android.widget.LinearLayout layout =
-                new android.widget.LinearLayout(this);
-
-        layout.setOrientation(
-                android.widget.LinearLayout.VERTICAL
-        );
-
-        int padding =
-                (int) (
-                        24
-                        * getResources()
-                                .getDisplayMetrics()
-                                .density
-                );
-
-        layout.setPadding(
-                padding,
-                padding,
-                padding,
-                padding
-        );
-
-        layout.addView(
-                downloadStatusText,
-                new android.widget.LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
-        );
-
-        layout.addView(
-                progressBar,
-                new android.widget.LinearLayout.LayoutParams(
-                        -1,
-                        -2
-                )
-        );
-
-        final android.app.AlertDialog dialog =
-                new android.app.AlertDialog.Builder(this)
-                        .setTitle("Generals Zero Hour")
-                        .setView(layout)
-                        .setCancelable(false)
-                        .create();
-
-        dialog.show();
-
-        GameDataInstaller.install(
-                this,
-                new GameDataInstaller.Listener() {
-
-                    @Override
-                    public void onProgress(
-                            long downloaded,
-                            long total
-                    ) {
-
-                        if (total > 0) {
-
-                            progressBar.setIndeterminate(false);
-
-                            int percent =
-                                    (int) (
-                                            downloaded
-                                            * 100L
-                                            / total
-                                    );
-
-                            progressBar.setProgress(
-                                    Math.min(100, percent)
-                            );
-
-                            downloadStatusText.setText(
-                                    "Downloading game files...\n\n"
-                                    + percent
-                                    + "%"
-                            );
-
-                        } else {
-
-                            progressBar.setIndeterminate(true);
-
-                            downloadStatusText.setText(
-                                    "Downloading game files..."
-                            );
-                        }
-                    }
-
-                    @Override
-                    public void onStatus(String status) {
-                        downloadStatusText.setText(status);
-                    }
-
-                    @Override
-                    public void onSuccess(File gameDirectory) {
-
-                        dialog.dismiss();
-
-                        // Save the exact directory returned by the installer.
-                        saveGamePath(
-                                gameDirectory.getAbsolutePath()
-                        );
-
-                        refreshStatus();
-
-                        // Download completed successfully.
-                        // Open the game automatically.
-                        launchInstalledGame();
-                    }
-
-                    @Override
-                    public void onError(String message) {
-
-                        dialog.dismiss();
-
-                        new android.app.AlertDialog.Builder(
-                                SetupActivity.this
-                        )
-                                .setTitle("Download failed")
-                                .setMessage(message)
-                                .setPositiveButton("OK", null)
-                                .show();
-                    }
-                }
-        );
-    }
-
-    private void launchInstalledGame() {
-
-        if (getResources()
-                .getConfiguration()
-                .orientation
-                == Configuration.ORIENTATION_LANDSCAPE) {
-
-            startActivity(
-                    new Intent(
-                            this,
-                            GeneralsZHActivity.class
-                    )
-            );
-
-            return;
-        }
-
         pendingLaunchAfterRotation = true;
-
-        setRequestedOrientation(
-                android.content.pm.ActivityInfo
-                        .SCREEN_ORIENTATION_LANDSCAPE
-        );
+        setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
     }
 
     @Override
-    public void onConfigurationChanged(
-            Configuration newConfig
-    ) {
-
+    public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
-
-        if (pendingLaunchAfterRotation
-                && newConfig.orientation
-                == Configuration.ORIENTATION_LANDSCAPE) {
-
+        if (pendingLaunchAfterRotation && newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) {
             pendingLaunchAfterRotation = false;
-
-            startActivity(
-                    new Intent(
-                            this,
-                            GeneralsZHActivity.class
-                    )
-            );
+            startActivity(new Intent(this, GeneralsZHActivity.class));
         }
     }
 
