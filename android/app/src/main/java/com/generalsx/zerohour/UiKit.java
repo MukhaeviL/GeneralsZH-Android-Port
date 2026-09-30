@@ -62,9 +62,6 @@ import com.google.android.material.materialswitch.MaterialSwitch;
 
 final class UiKit {
 
-    // WARU Blue/Red visual theme is centralized in the color() mapping below.
-    // No launcher behavior, callbacks, paths, or game-engine code is changed.
-
     private UiKit() {}
 
     // ---------------------------------------------------------------- tokens
@@ -77,41 +74,7 @@ final class UiKit {
         return c.getResources().getDimensionPixelSize(dimenRes);
     }
 
-    // WARU EDITION palette: blue primary + red danger, with a dark blue
-    // military-style surface.  Keeping the mapping here means every launcher
-    // widget created by UiKit gets the same theme without changing any game
-    // logic or click handlers.
-    private static final int WARU_BLUE = android.graphics.Color.rgb(35, 156, 245);
-    private static final int WARU_BLUE_DARK = android.graphics.Color.rgb(6, 20, 32);
-    private static final int WARU_BLUE_PANEL = android.graphics.Color.rgb(10, 31, 47);
-    private static final int WARU_BLUE_PANEL_2 = android.graphics.Color.rgb(15, 45, 66);
-    private static final int WARU_RED = android.graphics.Color.rgb(220, 45, 55);
-    private static final int WARU_RED_DARK = android.graphics.Color.rgb(115, 28, 35);
-    private static final int WARU_TEXT = android.graphics.Color.rgb(238, 246, 252);
-    private static final int WARU_TEXT_MUTED = android.graphics.Color.rgb(174, 198, 214);
-    private static final int WARU_OUTLINE = android.graphics.Color.rgb(48, 105, 137);
-    private static final int WARU_DISABLED = android.graphics.Color.rgb(45, 62, 72);
-    private static final int WARU_RIPPLE = android.graphics.Color.rgb(90, 190, 255);
-
     static int color(Context c, int colorRes) {
-        // Translate only the launcher's existing gzh color roles. Other Android
-        // resources (including android.R.color.transparent) keep their normal
-        // behavior, so this remains safe for all existing UiKit callers.
-        if (colorRes == R.color.gzh_primary) return WARU_BLUE;
-        if (colorRes == R.color.gzh_tertiary) return WARU_RED;
-        if (colorRes == R.color.gzh_tertiary_container) return WARU_RED_DARK;
-        if (colorRes == R.color.gzh_surface_container) return WARU_BLUE_PANEL;
-        if (colorRes == R.color.gzh_surface_container_high) return WARU_BLUE_PANEL_2;
-        if (colorRes == R.color.gzh_on_surface) return WARU_TEXT;
-        if (colorRes == R.color.gzh_on_primary) return android.graphics.Color.WHITE;
-        if (colorRes == R.color.gzh_on_surface_variant) return WARU_TEXT_MUTED;
-        if (colorRes == R.color.gzh_on_surface_faint) return android.graphics.Color.rgb(125, 158, 178);
-        if (colorRes == R.color.gzh_outline) return WARU_OUTLINE;
-        if (colorRes == R.color.gzh_outline_variant) return android.graphics.Color.rgb(28, 67, 88);
-        if (colorRes == R.color.gzh_container_disabled) return WARU_DISABLED;
-        if (colorRes == R.color.gzh_on_surface_disabled) return android.graphics.Color.rgb(105, 126, 138);
-        if (colorRes == R.color.gzh_ripple_primary) return WARU_RIPPLE;
-        if (colorRes == R.color.gzh_ripple_light) return android.graphics.Color.rgb(120, 205, 255);
         return ContextCompat.getColor(c, colorRes);
     }
 
